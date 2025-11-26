@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Identificador de Plantas by Mora Jr.</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7fafc; /* Fondo gris claro */
+        }
+        /* Estilos personalizados para el contenedor de la imagen */
+        #image-preview-container {
+            min-height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+    </style>
+
+    <meta name="theme-color" content="#065f46">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Plant AI">
+
+    <link rel="manifest" href="data:application/json;base64,eyJ... (content truncated for brevity)..." />
+
+    </head>
+<body class="min-h-screen flex flex-col items-center p-4">
+
+    <div class="w-full max-w-2xl bg-white shadow-2xl rounded-xl p-8 space-y-6">
+        
+        <header class="text-center">
+            <h1 class="text-3xl font-extrabold text-green-700">🌿 Identificador de Plantas AI</h1>
+            <p class="mt-2 text-gray-500">Sube una imagen de la planta para identificarla.</p>
+        </header>
+
+        <div class="border-2 border-dashed border-green-300 rounded-lg p-6 hover:border-green-500 transition duration-300">
+            <label for="image-upload" class="cursor-pointer block text-center">
+                <div class="text-green-600 text-6xl mb-3">
+                    <svg class="mx-auto w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 16m-7-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                </div>
+                <p class="font-semibold text-gray-700">Haz clic para subir una imagen</p>
+                <p class="text-sm text-gray-500">Archivos PNG, JPG, GIF (Max 12 MB)</p>
+            </label>
+            <input type="file" id="image-upload" accept="image/png, image/jpeg, image/gif" class="hidden" onchange="handleImageChange(event)">
+        </div>
+
+        <div id="image-preview-container" class="bg-gray-100 rounded-lg overflow-hidden border border-gray-300 transition duration-300">
+            <img id="image-preview" class="hidden w-full h-full object-cover max-h-80" alt="Previsualización de la Planta">
+            <span id="preview-text" class="text-gray-400 p-4">Ninguna imagen seleccionada.</span>
+        </div>
+
+        <button id="identify-button" 
+            onclick="identifyPlant()"
+            disabled
+            class="w-full py-3 px-4 bg-gray-400 text-white font-bold rounded-lg shadow-md transition duration-300 
+                   disabled:opacity-50 disabled:cursor-not-allowed hover:bg-green-600">
+            Identificar Planta
+        </button>
+
+        <div id="loading-indicator" class="hidden flex justify-center items-center">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500"></div>
+            <span class="ml-3 text-green-600 font-medium">Analizando imagen, por favor espera...</span>
+        </div>
+
+        <div id="results-container" class="hidden bg-green-50 border border-green-200 rounded-xl p-6 shadow-inner space-y-4">
+            <h2 class="text-2xl font-bold text-green-700 border-b pb-2">Resultados de la Identificación</h2>
+            <div id="results-content" class="text-gray-700 whitespace-pre-wrap">
+                </div>
+            <div id="citation-container" class="mt-4 text-sm text-gray-500 border-t pt-2">
+                </div>
+        </div>
+        
+        <div id="error-message" class="hidden p-3 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+            </div>
+
+    </div>
+    
+    <footer class="w-full max-w-2xl text-center mt-8 p-3 text-sm text-gray-500">
+        &copy; 2025 Derechos Reservados | **Mgtr. Elkis H. Mora Chérigo**
+    </footer>
+
+
+    <script>
+        // ***************************************************************
+        //  ⚠️ PASO CLAVE: PEGA TU CLAVE API DE GEMINI AQUÍ
+        // ***************************************************************
+        const apiKey = "AIzaSyDDmIBxxkw5LKUtaOddQ1sgr_odzESBF8E"; 
+        // ***************************************************************
+
+        const API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent";
+        const MAX_IMAGE_SIZE_BYTES = 12 * 1024 * 1024; // 12 MB
+
+        let imageBase64Data = null; // Almacena la imagen codificada en Base64
+
+        const elements = {
+            imageUpload: document.getElementById('image-upload'),
+            imagePreview: document.getElementById('image-preview'),
+            previewText: document.getElementById('preview-text'),
+            identifyButton: document.getElementById('identify-button'),
+            loadingIndicator: document.getElementById('loading-indicator'),
+            resultsContainer: document.getElementById('results-container'),
+            resultsContent: document.getElementById('results-content'),
+            error: document.getElementById('error-message'),
+            citationContainer: document.getElementById('citation-container')
+        };
+
+        // --- Funciones de Utilidad ---
+
+        // Convierte un archivo File a una cadena Base64
+        function toBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result.split(',')[1]); // Solo la data, no el prefijo
+                reader.onerror = error => reject(error);
+                reader.readAsDataURL(file);
+            });
+        }
+        
+        // Maneja la visibilidad del cargador
+        function showLoading(show) {
+            elements.loadingIndicator.classList.toggle('hidden', !show);
+            elements.identifyButton.disabled = show || !imageBase64Data;
+        }
+
+        // Muestra o oculta mensajes de error
+        function displayError(message) {
+            elements.error.textContent = message;
+            elements.error.classList.toggle('hidden', !message);
+        }
+
+        // Retraso con retroceso exponencial
+        async function exponentialBackoffFetch(url, options, maxRetries = 5, baseDelay = 1000) {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.status === 429 || response.status >= 500) {
+                        // Retry on rate limit (429) or server errors (5xx)
+                        const delay = baseDelay * Math.pow(2, i) + Math.random() * 1000;
+                        console.warn(`API call failed with status ${response.status}. Retrying in ${delay.toFixed(0)}ms...`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue;
+                    }
+                    if (!response.ok) {
+                        const errorBody = await response.text();
+                        throw new Error(`HTTP error! status: ${response.status}. Body: ${errorBody}`);
+                    }
+                    return response;
+                } catch (error) {
+                    if (i === maxRetries - 1) throw error; // Throw error after last retry
+                    const delay = baseDelay * Math.pow(2, i) + Math.random() * 1000;
+                    console.error(`Fetch attempt failed: ${error.message}. Retrying...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+            throw new Error("API call failed after multiple retries.");
+        }
+
+
+        // --- Lógica Principal ---
+
+        // Maneja el cambio de imagen y previsualización
+        async function handleImageChange(event) {
+            const file = event.target.files[0];
+            
+            elements.resultsContainer.classList.add('hidden');
+            displayError('');
+            imageBase64Data = null;
+
+            if (file) {
+                // Validación de tamaño (MÁXIMO 12 MB)
+                if (file.size > MAX_IMAGE_SIZE_BYTES) {
+                    displayError(`El archivo es demasiado grande (máx ${MAX_IMAGE_SIZE_BYTES / 1024 / 1024} MB).`);
+                    elements.imagePreview.classList.add('hidden');
+                    elements.previewText.classList.remove('hidden');
+                    elements.identifyButton.disabled = true;
+                    return;
+                }
+                
+                try {
+                    // Mostrar previsualización
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        elements.imagePreview.src = e.target.result;
+                        elements.imagePreview.classList.remove('hidden');
+                        elements.previewText.classList.add('hidden');
+                        elements.identifyButton.disabled = false;
+                    };
+                    reader.readAsDataURL(file);
+
+                    // Convertir para la API
+                    imageBase64Data = await toBase64(file);
+                    
+                } catch (error) {
+                    displayError('Error al procesar la imagen: ' + error.message);
+                    elements.imagePreview.classList.add('hidden');
+                    elements.previewText.classList.remove('hidden');
+                    elements.identifyButton.disabled = true;
+                }
+            } else {
+                elements.imagePreview.classList.add('hidden');
+                elements.previewText.classList.remove('hidden');
+                elements.identifyButton.disabled = true;
+            }
+        }
+
+        // Llama a la API de Gemini para identificar la planta
+        async function identifyPlant() {
+            if (!imageBase64Data) {
+                displayError("Por favor, sube una imagen de la planta primero.");
+                return;
+            }
+            
+            showLoading(true);
+            elements.resultsContainer.classList.add('hidden');
+            displayError('');
+            elements.citationContainer.innerHTML = '';
+            
+            // Comprobación rápida de la API Key antes de enviar la solicitud
+            if (!apiKey) {
+                showLoading(false);
+                displayError('⚠️ ERROR: Clave API no configurada. Edita el archivo index.html y pega tu clave API de Gemini en la variable "apiKey".');
+                return;
+            }
+
+
+            try {
+                // El prompt instruye a Gemini a actuar como botánico y a dar información específica
+                const userPrompt = "Actúa como un experto botánico. Analiza la imagen de la planta proporcionada. Identifica la especie y proporciona un resumen conciso y en español que incluya: 1. Nombre Común. 2. Nombre Científico. 3. Familia. 4. Cuidados Importantes (Riego, Luz, Suelo). Formatea tu respuesta como texto simple, usando saltos de línea para cada sección.";
+                
+                const payload = {
+                    contents: [
+                        {
+                            role: "user",
+                            parts: [
+                                { text: userPrompt },
+                                {
+                                    inlineData: {
+                                        mimeType: elements.imageUpload.files[0].type,
+                                        data: imageBase64Data
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    // Habilitar Google Search para grounding (información actualizada)
+                    tools: [{ "google_search": {} }],
+                };
+
+                // Enviamos la solicitud a gemini-1.5-flash (el modelo más estable actual)
+                const response = await exponentialBackoffFetch(`${API_URL}?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+                const candidate = result.candidates?.[0];
+
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    const text = candidate.content.parts[0].text;
+                    
+                    // 1. Mostrar texto generado
+                    elements.resultsContent.innerHTML = text.replace(/\n/g, '<br>'); // Usar <br> para saltos de línea
+                    
+                    // 2. Extraer y mostrar fuentes de búsqueda
+                    let sources = [];
+                    const groundingMetadata = candidate.groundingMetadata;
+                    if (groundingMetadata && groundingMetadata.groundingAttributions) {
+                        sources = groundingMetadata.groundingAttributions
+                            .map(attribution => ({
+                                uri: attribution.web?.uri,
+                                title: attribution.web?.title,
+                            }))
+                            .filter(source => source.uri && source.title);
+                    }
+
+                    if (sources.length > 0) {
+                        let sourcesHtml = 'Fuentes de Búsqueda (Google Grounding):<br>';
+                        sources.forEach((source, index) => {
+                            sourcesHtml += `<a href="${source.uri}" target="_blank" class="text-blue-500 hover:underline block truncate" title="${source.title}">(${index + 1}) ${source.title}</a>`;
+                        });
+                        elements.citationContainer.innerHTML = sourcesHtml;
+                    }
+                    
+                    elements.resultsContainer.classList.remove('hidden');
+
+                } else {
+                    displayError('No se pudo obtener una identificación clara. Por favor, intenta con otra imagen o un ángulo diferente.');
+                }
+
+            } catch (error) {
+                console.error("Error en la API de Gemini:", error);
+                
+                let errorMessage = 'Ocurrió un error al identificar la planta. Por favor, verifica tu conexión o intenta más tarde.';
+                
+                // Si el error es una falla HTTP, es casi seguro que es por la API Key.
+                if (error.message.includes('HTTP error') || error.message.includes('API call failed')) {
+                    errorMessage = '❌ Error de Autenticación. Es probable que necesites pegar tu CLAVE API de Gemini. Sigue las instrucciones a continuación para obtenerla e insertarla en el código.';
+                }
+                
+                displayError(errorMessage);
+            } finally {
+                showLoading(false);
+            }
+        }
+    </script>
+</body>
+</html>
